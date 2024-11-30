@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MIT-WPU Campus Navigation</title>
+
+  <!-- Leaflet CSS and JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+  <script src="https://unpkg.com/@mapbox/polyline"></script>
+
+
+  <link rel="stylesheet" href="style.css">
+  <!--<style>
+    #map { height: 600px; }
+    #controls { margin: 10px; }
+  </style>-->
+</head>
+<body >
+  <div id="themeToggle">
+    <button class="btn btn-secondary" onclick="toggleTheme()">Switch Theme</button>
+  </div>
+
+  <div id="logout">
+    <button class="btn btn-danger" onclick="logout()">Log out</button>
+  </div>
+
+  <div id="controls">
+    <h1>MIT-WPU Campus Navigation</h1>
+    <div class="mb-3" id="form-container">
+      <select id="locationSelector" style="width: max-content;padding: 10px;" class="form-control">
+        <option value="">Select a location</option>
+        <option value="0">Main Library</option>
+        <option value="1">Gargi Building (CS Dept.)</option>
+        <option value="2">Auditorium</option>
+        <option value="3">Sant Dnyaneshwara Building</option>
+        <option value="4">Saraswati Building</option>
+        <option value="5">Ganga Building</option>
+        <option value="6">Dhruv Building</option>
+        <option value="7">Chanakya Building</option>
+        <option value="8">Atri Building</option>
+      </select>
+      <button class="btn btn-primary" onclick="startSpeechRecognition()">🎤 Speak</button>
+      <button class="btn btn-warning" onclick="setSelectedLocation()">Get Directions</button>
+      <button class="btn btn-danger " onclick="clearPaths()">Clear Path</button>
+    </div>
+  </div>
+
+  <div id="map"  style="height: 600px;"></div>
+
+  <div id="directionBox" class="mb-3">
+    <h5>Directions</h5>
+    <ul id="directionList" style="list-style-type: none; padding-left: 0;"></ul>
+  </div>
+  
+  <script>
+      // MIT-WPU campus bounds
+      const mitBounds = [
+        [18.5145, 73.8148], // Southwest corner
+        [18.521702, 73.815676]  // Northeast corner
+      ];
+
+      // Predefined walking paths as arrays of coordinates
+      const walkingPaths = {
+        "Main Gate to Library": [
+          [18.515752, 73.815384], // Main Gate
+          [18.516724, 73.815368], // Midpoint
+          [18.516808, 73.814982]  // Main Library
+        ],
+        "Main Gate to Gargi Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.519165, 73.815517], // Midpoint
+          [18.519172, 73.815598]  // Gargi Building
+        ],
+        "Main Gate to Auditorium": [
+          [18.515752, 73.815384], // Main Gate
+          [18.518312, 73.815442], // Midpoint
+          [18.518516, 73.814984]  // Auditorium
+        ],
+        "Main Gate to Sant Dnyaneshwara Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.517781, 73.815433], // Midpoint
+          [18.517754, 73.815048]  // Sant Dnyaneshwara Building
+        ],
+        "Main Gate to Saraswati Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.515908, 73.815435], // Midpoint
+          [18.515893, 73.815213]  // Saraswati Building
+      ],
+      "Main Gate to Ganga Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.515908, 73.815435], // Midpoint
+          [18.515888, 73.815524]  // Ganga Building
+      ],
+      "Main Gate to Dhruv Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.519383, 73.815437], // Midpoint
+          [18.519377, 73.815214]  // Dhruv Building
+      ],
+      "Main Gate to Chanakya Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.519887, 73.815441], // Midpoint
+          [18.519892, 73.815521]  // Chanakya Building
+      ],
+      "Main Gate to Atri Building": [
+          [18.515752, 73.815384], // Main Gate
+          [18.517187, 73.815423], // Midpoint
+          [18.517189, 73.815767]  // Atri Building
+      ]
+      };
+
+      let pathLayer;
+
+      
+      // Define Tile Layers
+      const lightTileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      });
+
+      const darkTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19
+      });
+
+      // Initialize the map with the light theme by default
+      const map = L.map('map').setView([18.515667, 73.815418], 17);
+      lightTileLayer.addTo(map);
+
+      // Theme Toggle Functionality
+      function toggleTheme() {
+        document.body.classList.toggle('dark-mode');
+
+        // Switch Tile Layers
+        if (document.body.classList.contains('dark-mode')) {
+          map.removeLayer(lightTileLayer);
+          darkTileLayer.addTo(map);
+        } else {
+          map.removeLayer(darkTileLayer);
+          lightTileLayer.addTo(map);
+        }
+        // Save User Preference
+        const isDarkMode = document.body.classList.contains('dark-mode');
+        localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+      }
+      
+      // Load theme preference on page load
+      window.onload = () => {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+          document.body.classList.add('dark-mode');
+          darkTileLayer.addTo(map);
+        }else{
+          lightTileLayer.addTo(map);
+        }
+      };
+
+
+      // Add a marker for the Main Gate
+      L.marker([18.515667, 73.815418]).addTo(map).bindPopup("MIT-WPU Main Gate").openPopup();
+
+      // Add a marker for Library
+      L.marker([18.516808, 73.814982]).addTo(map).bindPopup("Main Library").openPopup();
+
+      // Add a marker for Gargi Building 
+      L.marker([18.519172, 73.815598]).addTo(map).bindPopup("Gargi Building").openPopup();
+
+      // Add a marker for Auditorium
+      L.marker([18.518516, 73.814984]).addTo(map).bindPopup("Auditorium").openPopup();
+
+      // Add a marker for Sant Dnyaneshwara Building
+      L.marker([18.517754, 73.815048]).addTo(map).bindPopup("Sant Dnyaneshwara Building").openPopup();
+
+      // Add a marker for Saraswati Building
+      L.marker([18.515893, 73.815213]).addTo(map).bindPopup("Saraswati Building").openPopup();
+
+      // Add a marker for Ganga Building
+      L.marker([18.515888, 73.815524]).addTo(map).bindPopup("Ganga Building").openPopup();
+
+      // Add a marker for Dhruv Building
+      L.marker([18.519377, 73.815214]).addTo(map).bindPopup("Dhruv Building").openPopup();
+
+      // Add a marker for Chanakya Building
+      L.marker([18.519892, 73.815521]).addTo(map).bindPopup("Chanakya Building").openPopup();
+
+      // Add a marker for Atri Building
+      L.marker([18.517189, 73.815767]).addTo(map).bindPopup("Atri Building").openPopup();
+
+
+      // Function to announce directions using the Web Speech API
+      function announceDirection(text) {
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 1; // Normal speed
+          utterance.pitch = 1; // Normal pitch
+          window.speechSynthesis.speak(utterance);
+        } else {
+          console.log("Speech synthesis is not supported in this browser.");
+        }
+      }
+
+      // Function to calculate distance between two coordinates (Haversine formula)
+  function calculateDistance(coord1, coord2) {
+    const R = 6371e3; // Radius of the Earth in meters
+    const lat1 = (coord1[0] * Math.PI) / 180;
+    const lat2 = (coord2[0] * Math.PI) / 180;
+    const deltaLat = ((coord2[0] - coord1[0]) * Math.PI) / 180;
+    const deltaLon = ((coord2[1] - coord1[1]) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) *
+      Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in meters
+  }
+
+  // Function to calculate bearing between two coordinates
+  function calculateBearing(coord1, coord2) {
+    const lat1 = (coord1[0] * Math.PI) / 180;
+    const lat2 = (coord2[0] * Math.PI) / 180;
+    const deltaLon = ((coord2[1] - coord1[1]) * Math.PI) / 180;
+
+    const y = Math.sin(deltaLon) * Math.cos(lat2);
+    const x =
+      Math.cos(lat1) * Math.sin(lat2) -
+      Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+
+    const bearing = (Math.atan2(y, x) * 180) / Math.PI;
+    return (bearing + 360) % 360; // Normalize to 0-360 degrees
+  }
+
+  // Function to translate bearing into cardinal direction
+  function getCardinalDirection(bearing) {
+    const directions = [
+      "North", "North-East", "East", "South-East", "South", "South-West", "West", "North-West", "North"
+    ];
+    const index = Math.round(bearing / 45);
+    return directions[index];
+  }
+
+    // Add ramps as an array of objects
+    const ramps = [
+      { location: [18.519165, 73.815517], description: "Ramp near Gargi Building entrance" },
+      { location: [18.516727, 73.815368], description: "Ramp leading to the Main Library" },
+      // Add more ramps as needed
+    ];
+
+    // Function to add ramp markers to the map
+    function addRampsToMap() {
+      ramps.forEach((ramp) => {
+        L.marker(ramp.location, { icon: L.icon({
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/190/190411.png', // Example ramp icon URL
+            iconSize: [35, 35],
+            iconAnchor: [17, 17], // Center the icon on the marker
+            popupAnchor: [0, -20] // Adjust popup position relative to the icon
+        })})
+          .addTo(map)
+          .bindPopup(`<strong>Ramp Info:</strong> ${ramp.description}`);
+      });
+    }
+
+    // Call the function to add ramps when the map initializes
+    addRampsToMap();
+
+    // Function to check for ramps in the path and update the direction list
+    function checkForRampsInPath(pathCoordinates) {
+      const directionBox = document.getElementById("directionBox");
+      const directionList = document.getElementById("directionList");
+      directionList.innerHTML = ""; // Clear previous directions
+
+      for (let i = 0; i < pathCoordinates.length - 1; i++) {
+        const start = pathCoordinates[i];
+        const end = pathCoordinates[i + 1];
+        const distance = calculateDistance(start, end);
+        const bearing = calculateBearing(start, end);
+        const direction = getCardinalDirection(bearing);
+
+        let instruction = `Step ${i + 1}: Go straight for ${(distance / 1000).toFixed(2)} km, then head ${direction}.`;
+
+        // Check if the current segment contains a ramp
+        ramps.forEach((ramp) => {
+          const rampDistanceStart = calculateDistance(start, ramp.location);
+          const rampDistanceEnd = calculateDistance(end, ramp.location);
+
+          if (rampDistanceStart < 10 || rampDistanceEnd < 10) { // Threshold to match ramp
+            instruction += ` [Ramp: ${ramp.description}]`;
+          }
+        });
+
+        const listItem = document.createElement("li");
+        listItem.textContent = instruction;
+        directionList.appendChild(listItem);
+      }
+
+      const finalStep = document.createElement("li");
+      finalStep.textContent = "You have arrived at your destination.";
+      directionList.appendChild(finalStep);
+      announceDirection("You have arrived at your destination.");
+      directionBox.style.display = "block";
+    }
+
+    // Function to draw a predefined path
+      function drawPath(pathName) {
+        const pathCoordinates = walkingPaths[pathName];
+
+        if (!pathCoordinates) {
+          alert("No predefined path available for this route.");
+          return;
+        }
+
+        // Remove existing path if present
+        if (pathLayer) {
+          map.removeLayer(pathLayer);
+        }
+
+        // Draw the path on the map
+        pathLayer = L.polyline(pathCoordinates, {
+          color: 'blue',
+          weight: 5,
+          opacity: 0.7
+        }).addTo(map);
+
+        map.fitBounds(pathLayer.getBounds());
+        
+        // Check for ramps in the path and display directions
+      checkForRampsInPath(pathCoordinates);
+
+        // Announce directions
+        const start = pathCoordinates[0];
+        const mid = pathCoordinates[1];
+        const end = pathCoordinates[pathCoordinates.length - 1];
+        announceDirection("Starting at Main Gate. Proceed to the midpoint, and finally reach your destination.");
+      }
+
+      // Function to set selected location as destination
+      function setSelectedLocation() {
+        const selector = document.getElementById("locationSelector");
+        const selectedIndex = selector.value;
+
+        if (selectedIndex === "") {
+          alert("Please select a location.");
+          return;
+        }
+
+        // Map dropdown index to path names
+        const pathNames = [
+          "Main Gate to Library",
+          "Main Gate to Gargi Building",
+          "Main Gate to Auditorium",
+          "Main Gate to Sant Dnyaneshwara Building",
+          "Main Gate to Saraswati Building",
+          "Main Gate to Ganga Building",
+          "Main Gate to Dhruv Building",
+          "Main Gate to Chanakya Building",
+          "Main Gate to Atri Building"
+        ];
+
+        drawPath(pathNames[selectedIndex]);
+      }
+
+      // Function to clear paths
+      function clearPaths() {
+        if (pathLayer) {
+          map.removeLayer(pathLayer);
+          pathLayer = null;
+        }
+
+        // Reset the dropdown to its default option
+    const selector = document.getElementById("locationSelector");
+    selector.value = "";
+
+    // Stop any ongoing voice directions
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    // Clear the directions box content and hide it
+    const directionBox = document.getElementById("directionBox");
+    const directionList = document.getElementById("directionList");
+    directionList.innerHTML = ""; // Clear the direction list
+    directionBox.style.display = "none"; // Hide the direction box
+    
+    }
+
+    // Speech recognition
+    function startSpeechRecognition() {
+        if (!('webkitSpeechRecognition' in window)) {
+          alert("Your browser does not support speech recognition.");
+          return;
+        }
+
+        const recognition = new webkitSpeechRecognition();
+        recognition.lang = "en-US";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        recognition.start();
+
+        recognition.onresult = function(event) {
+          const speechResult = event.results[0][0].transcript.toLowerCase();
+          const selector = document.getElementById('locationSelector');
+          let found = false;
+
+          for (let i = 0; i < selector.options.length; i++) {
+            if (selector.options[i].text.toLowerCase().includes(speechResult)) {
+              selector.selectedIndex = i;
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            alert(`Could not find a location matching "${speechResult}". Please try again.`);
+          }
+        };
+
+        recognition.onerror = function(event) {
+          alert("Error occurred during speech recognition: " + event.error);
+        };
+      }
+      
+    function logout() {
+        // Redirect to index.html
+        window.location.href = "index.html";
+      }
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then((registration) => {
+          console.log('Service Worker registered with scope:', registration.scope);
+        })
+        .catch((error) => {
+          console.log('Service Worker registration failed:', error);
+        });
+    }
+  </script>
+</body>
+</html>
